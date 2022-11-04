@@ -1,17 +1,22 @@
 ''' 中国大学 MOOC 定向爬虫 '''
 ''' Author:comajor'''
 '''2021/1/24'''
+'''
+修改了原作的userinput函数，输入课程编号之后不会报错（目前是这样的，2022.11.4）
+如果当前学期没有更新完，可以修改19行代码下载往期视频
+有点小强迫症，删减了原作的输出内容，修改了rename.bat中'.mp4'和PDF文件中'.pdf'出现两次的情况
+'''
 import os
 import re
 import requests
 
+
 def userinput():
     ''' 解析用户输入 '''
-    # course = re.search(r'(\w+-\d+)', input("在此处输入 URL：")).group(1)
     course = input("请输入课程编号:\n")
     course_page_url = 'http://www.icourse163.org/learn/' + course
     course_page = requests.get(course_page_url, headers=HEADER)
-    course_id_number = re.search(r'id:(\d+),', course_page.text).group(1)
+    course_id_number = re.findall(r'(?<=id : ").*?(?=",\ncourseId)', course_page.text)[-1]# 如果想下载往期mooc，把-1改成-2即可
     return course_id_number
 
 
@@ -36,13 +41,11 @@ def parseinfo(course):
     # 查找第 N 周的信息，并返回 [id,name]
     chaps = re.findall(r'homeworks=\w+;.+id=(\d+).+name="(.+)";', info)
     for chapcnt, chap in enumerate(chaps):
-        print(chap[1])
         TOCFILE.write('%s {%d}\n' % (chap[1], chapcnt + 1))
         # 查找更小的结构，并返回 [id,name]
         secs = re.findall(r'chapterId=' + chaps[chapcnt][0]
                           + r'.+contentType=1.+id=(\d+).+name="(.+)".+test', info)
         for seccnt, sec in enumerate(secs):
-            print('  ' + sec[1])
             TOCFILE.write('  %s {%d.%d}\n' % (sec[1], chapcnt + 1, seccnt + 1))
             # 查找视频，并返回 [contentid,contenttype,id,name]
             lessons = re.findall(r'contentId=(\d+).+contentType=(1).+id=(\d+).+lessonId='
@@ -87,23 +90,28 @@ def getcontent(lesson, name):
     }
     resource = requests.post(RESOURCE, headers=HEADER, data=postdata).text
     if lesson[1] == '1':
-        # mp4url = re.search(r'mp4ShdUrl="(.*?)"', resource).group(1)
-        print(resource)
         urlfind = re.search(r'mp4ShdUrl="(.*\.mp4)', resource)
         if urlfind:
             mp4url = urlfind.group(1)
-            print('------->' + name + '.mp4')
-            FILES.writelines('rename "' + re.search(r'(\w+_shd.mp4)', mp4url).group(1)
-                            + '" "' + filename + '.mp4"' + '\n')
-            DOWNLOAD.writelines(mp4url + '\n')
+            if filename[-4:] != '.mp4':
+                FILES.writelines('rename "' + re.search(r'(\w+_shd.mp4)', mp4url).group(1)
+                                + '" "' + filename + '.mp4"' + '\n')
+                DOWNLOAD.writelines(mp4url + '\n')
+            else:
+                FILES.writelines('rename "' + re.search(r'(\w+_shd.mp4)', mp4url).group(1)
+                                + '" "' + filename + '"' + '\n')
+                DOWNLOAD.writelines(mp4url + '\n') 
     else:
         pdfurl = re.search(r'textOrigUrl:"(.*?)"', resource).group(1)
-        print('------->' + name + '.pdf')
         pdf = requests.get(pdfurl, headers=HEADER)
         if not os.path.isdir('PDFs'):
             os.mkdir(r'PDFs')
-        with open('PDFs\\' + filename + '.pdf', 'wb') as file:
-            file.write(pdf.content)
+        if filename[-4:] != '.pdf':
+            with open('PDFs\\' + filename + '.pdf', 'wb') as file:
+                file.write(pdf.content)
+        else:
+            with open('PDFs\\' + filename, 'wb') as file:
+                file.write(pdf.content)
 
 
 HEADER = {'User-Agent': 'Mozilla/6.0'}
@@ -116,8 +124,8 @@ if __name__ == '__main__':
     FILES.writelines('chcp 65001\n')
     DOWNLOAD = open('Links.txt', 'w', encoding='utf-8')
     TOCFILE = open('TOC.txt', 'w', encoding='utf-8')
-    COURSE_ID = userinput()
-    parseinfo(COURSE_ID)
+    course_id_number = userinput()
+    parseinfo(course_id_number)
     FILES.close()
     DOWNLOAD.close()
     TOCFILE.close()
